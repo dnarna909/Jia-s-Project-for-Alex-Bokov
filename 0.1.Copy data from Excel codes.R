@@ -39,8 +39,8 @@ dat0$DATE <- as.Date(dat0$DATE);
 # Consistent gender
 #+ fix_gender
 dat0$Gender <- fct_collapse(dat0$Gender
-                            ,Female = c('F','Female','FEMALE','female')
-                            ,Male=c('M','Male','MALE','male'))
+                            ,`F` = c('F','Female','FEMALE','female')
+                            ,`M` =c('M','Male','MALE','male'))
 
 # calculate ibm
 dat0$ibm <- with(dat0,LBM/WT)
