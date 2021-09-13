@@ -1,79 +1,75 @@
-rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
-gc() #free up memrory and report the memory usage.
+#rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+#gc() #free up memrory and report the memory usage.
 memory.limit(size = 80000000)
 
 library(xlsx)
 library(ggplot2)
 library(ggpmisc)
 library(readxl)
+library(dplyr)
+library(forcats)
+library(bayestestR)
 
+# set data locations in one place
+inputdata <- c(subjects="E:/2021-03-26 Bulk Fat RNAseq/Subjects with Clamp Infor.xlsx"
+               ,dat0="E:/2021-03-26 Bulk Fat RNAseq/Erit-2 Clamp Calculations Dr M with lean mass (003)nm updated with 206 215_2.xlsx");
 
 ## Extracting data from clamp sheet
-subject_infor <- read_excel("E:/2021-03-26 Bulk Fat RNAseq/Subjects with Clamp Infor.xlsx",
+subject_infor <- read_excel(inputdata['subjects'],
                             sheet = "Subjects.infor", col_types = c("numeric", "text"))
-col.location <- read_excel("E:/2021-03-26 Bulk Fat RNAseq/Subjects with Clamp Infor.xlsx",
+col.location <- read_excel(inputdata['subjects'],
                             sheet = "col.location")
 
-for ( i in 1:nrow(subject_infor)) {
-  i=i
-  x <- read_excel("E:/2021-03-26 Bulk Fat RNAseq/Erit-2 Clamp Calculations Dr M with lean mass (003)nm updated with 206 215_2.xlsx", 
-                  sheet = subject_infor$Sheet_Name[i], col_names = FALSE)
-  for (b in 1:nrow(col.location)) {
-    b =b
-    subject_infor[i, col.location$col[b]] <- x[col.location$nrow[b], col.location$ncol_number[b]]
-  }
-}
+dat0 <- NULL;
+for ( i in unique(subject_infor$Sheet_Name)) {
+  dat0 <- rbind(dat0
+               ,bind_cols(apply(col.location,1,function(thiscol){
+                   read_excel(inputdata['dat0'],sheet=i,col_names=F
+                                     ,range=thiscol['location']) %>%
+                   ifelse(nrow(.)==0,as_tibble(NA),.) %>%
+                   setNames(thiscol['col'])})))
+};
+dat0 <- cbind(subject_infor,dat0);
+
 
 ## organize the data extracted from clamp sheet
 # change date
-library("zoo")
-subject_infor$DATE <- as.Date(as.numeric(subject_infor$DATE), origin="1899-12-30")
+dat0$DATE <- as.Date(dat0$DATE);
 
 # Consistent gender
-table(subject_infor$Gender)
-Female = c("F", "Female", "FEMALE"  )    
-Male = c("M",   "male",   "Male",   "MALE" )
-Gender.new <- ifelse(subject_infor$Gender %in% Female, "F", ifelse(subject_infor$Gender %in% Male, "M", "NA"))
-subject_infor$Gender <- Gender.new
+#+ fix_gender
+dat0$Gender <- fct_collapse(dat0$Gender
+                            ,`F` = c('F','Female','FEMALE','female')
+                            ,`M` =c('M','Male','MALE','male'))
 
 # calculate ibm
-subject_infor$ibm <- as.numeric(subject_infor$LBM)/as.numeric(subject_infor$WT)
-subject_infor <- as.data.frame(subject_infor)
+dat0$ibm <- with(dat0,LBM/WT)
 
 # save data
-saveRDS(subject_infor, file = "E:/2021-03-26 Bulk Fat RNAseq/Subjects basic infor from Clamp.Rds")
-write.csv(subject_infor, file = "E:/2021-03-26 Bulk Fat RNAseq/Subjects basic infor from Clamp.csv", row.names = FALSE)
-write.xlsx(subject_infor, file = "E:/2021-03-26 Bulk Fat RNAseq/Subjects basic infor from Clamp.xlsx", row.names = FALSE)
+#+ save_data
+saveRDS(dat0,file='Subjects basic infor from Clamp.Rds')
+write.csv(dat0, file = "Subjects basic infor from Clamp.csv", row.names = FALSE)
+write.xlsx2(dat0, file = "Subjects basic infor from Clamp.xlsx", row.names = FALSE)
 
 
-## Import clamp data 
-clamp <- read.xlsx2("E:/2021-03-26 Bulk Fat RNAseq/Subjects with Clamp Infor.xlsx", sheetName = "Subjects", header=TRUE)
+## Import clamp data
+#+ clamp_data
+clamp <- read_xlsx(inputdata['subjects'],sheet='Subjects');
 
 # Organize FFA parameters
 groups = c( "FFA_basal", "FFA_20", "FFA_80")
-Corr.Result_p <- as.data.frame(clamp[, groups])
-rownames(Corr.Result_p) <- clamp$Subject_ID
-for ( col in colnames(Corr.Result_p)) { Corr.Result_p <- Corr.Result_p[!grepl("ERROR", Corr.Result_p[, col]),] }
+#+ AUC
+clamp$AUC <- apply(clamp,1,function(xx) area_under_curve(c(0,20,80),as.numeric(xx[groups])));
+clamp$Total <- clamp[[groups[1]]]*80;
+clamp$FFA.revAUC <- with(clamp,Total - AUC);
 
-# calculate AUC
-library(bayestestR)
-for (g in 1:nrow(Corr.Result_p)) {
-  Corr.Result_p[g, "AUC"] <- area_under_curve(c(0,20,80), as.numeric(Corr.Result_p[g, groups]), method = "trapezoid")
-  Corr.Result_p[g, "Total"] <- (as.numeric(Corr.Result_p[g, groups[1]]) * (80-0)) 
-}
-Corr.Result_p[["FFA.revAUC"]] <- Corr.Result_p[["Total"]] - Corr.Result_p[["AUC"]]
-hist(Corr.Result_p[["FFA.revAUC"]])
-Corr.Result_p[["Subject_ID"]] <- rownames(Corr.Result_p)
-
-# add FFA.revAUC to clamp data
-clamp <- merge(clamp, Corr.Result_p[, c("Subject_ID", "FFA.revAUC")], by = "Subject_ID", all.x = TRUE)
 
 ## Combine all information
-all.infor <- merge(subject_infor, clamp, by= intersect(colnames(subject_infor), colnames(clamp)) , all = TRUE)
+all.infor <- merge(dat0, clamp, by= intersect(colnames(dat0), colnames(clamp)) , all = TRUE)
 
 # save data
-saveRDS(all.infor, file = "E:/2021-03-26 Bulk Fat RNAseq/Subjects with Clamp Infor and All Infor.RDS")
-write.csv(all.infor, file = "E:/2021-03-26 Bulk Fat RNAseq/Subjects with Clamp Infor and All Infor.csv", row.names = FALSE)
-write.xlsx(all.infor, "E:/2021-03-26 Bulk Fat RNAseq/Subjects with Clamp Infor and All Infor.xlsx", row.names = FALSE)
+saveRDS(all.infor, file = "Subjects with Clamp Infor and All Infor.RDS")
+write.csv(all.infor, file = "Subjects with Clamp Infor and All Infor.csv", row.names = FALSE)
+write.xlsx(all.infor, "Subjects with Clamp Infor and All Infor.xlsx", row.names = FALSE)
 
 
