@@ -11,8 +11,8 @@ library(forcats)
 library(bayestestR)
 
 # set data locations in one place
-inputdata <- c(subjects="Subjects with Clamp Infor.xlsx"
-               ,dat0="Erit-2 Clamp Calculations Dr M with lean mass (003)nm updated with 206 215_2.xlsx");
+inputdata <- c(subjects="E:/2021-03-26 Bulk Fat RNAseq/Subjects with Clamp Infor.xlsx"
+               ,dat0="E:/2021-03-26 Bulk Fat RNAseq/Erit-2 Clamp Calculations Dr M with lean mass (003)nm updated with 206 215_2.xlsx");
 
 ## Extracting data from clamp sheet
 subject_infor <- read_excel(inputdata['subjects'],
